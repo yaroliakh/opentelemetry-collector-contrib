@@ -6,12 +6,14 @@ package traces
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -26,7 +28,7 @@ import (
 )
 
 func Start(cfg *Config) error {
-	logger, err := common.CreateLogger()
+	logger, err := common.CreateLogger(cfg.SkipSettingGRPCLogger)
 	if err != nil {
 		return err
 	}
@@ -40,6 +42,7 @@ func Start(cfg *Config) error {
 
 	httpExpOpt := []otlptracehttp.Option{
 		otlptracehttp.WithEndpoint(cfg.Endpoint),
+		otlptracehttp.WithURLPath(cfg.HTTPPath),
 	}
 
 	if cfg.Insecure {
@@ -71,13 +74,16 @@ func Start(cfg *Config) error {
 		}
 	}()
 
-	ssp := sdktrace.NewBatchSpanProcessor(exp, sdktrace.WithBatchTimeout(time.Second))
-	defer func() {
-		logger.Info("stop the batch span processor")
-		if tempError := ssp.Shutdown(context.Background()); tempError != nil {
-			logger.Error("failed to stop the batch span processor", zap.Error(err))
-		}
-	}()
+	var ssp sdktrace.SpanProcessor
+	if cfg.Batch {
+		ssp = sdktrace.NewBatchSpanProcessor(exp, sdktrace.WithBatchTimeout(time.Second))
+		defer func() {
+			logger.Info("stop the batch span processor")
+			if tempError := ssp.Shutdown(context.Background()); tempError != nil {
+				logger.Error("failed to stop the batch span processor", zap.Error(err))
+			}
+		}()
+	}
 
 	var attributes []attribute.KeyValue
 	// may be overridden by `-otlp-attributes service.name="foo"`
@@ -88,7 +94,9 @@ func Start(cfg *Config) error {
 		sdktrace.WithResource(resource.NewWithAttributes(semconv.SchemaURL, attributes...)),
 	)
 
-	tracerProvider.RegisterSpanProcessor(ssp)
+	if cfg.Batch {
+		tracerProvider.RegisterSpanProcessor(ssp)
+	}
 	otel.SetTracerProvider(tracerProvider)
 
 	if err = Run(cfg, logger); err != nil {
@@ -115,24 +123,41 @@ func Run(c *Config, logger *zap.Logger) error {
 		logger.Info("generation of traces is limited", zap.Float64("per-second", float64(limit)))
 	}
 
+	var statusCode codes.Code
+
+	switch strings.ToLower(c.StatusCode) {
+	case "0", "unset", "":
+		statusCode = codes.Unset
+	case "1", "error":
+		statusCode = codes.Error
+	case "2", "ok":
+		statusCode = codes.Ok
+	default:
+		return fmt.Errorf("expected `status-code` to be one of (Unset, Error, Ok) or (0, 1, 2), got %q instead", c.StatusCode)
+	}
+
 	wg := sync.WaitGroup{}
 
 	running := &atomic.Bool{}
 	running.Store(true)
+
+	telemetryAttributes := c.GetTelemetryAttributes()
 
 	for i := 0; i < c.WorkerCount; i++ {
 		wg.Add(1)
 		w := worker{
 			numTraces:        c.NumTraces,
 			propagateContext: c.PropagateContext,
+			statusCode:       statusCode,
 			limitPerSecond:   limit,
 			totalDuration:    c.TotalDuration,
 			running:          running,
 			wg:               &wg,
 			logger:           logger.With(zap.Int("worker", i)),
+			loadSize:         c.LoadSize,
 		}
 
-		go w.simulateTraces()
+		go w.simulateTraces(telemetryAttributes)
 	}
 	if c.TotalDuration > 0 {
 		time.Sleep(c.TotalDuration)

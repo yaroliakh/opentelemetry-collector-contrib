@@ -29,6 +29,7 @@ func TestMetricsBuilderConfig(t *testing.T) {
 					DefaultMetric:            MetricConfig{Enabled: true},
 					DefaultMetricToBeRemoved: MetricConfig{Enabled: true},
 					OptionalMetric:           MetricConfig{Enabled: true},
+					OptionalMetricEmptyUnit:  MetricConfig{Enabled: true},
 				},
 				ResourceAttributes: ResourceAttributesConfig{
 					MapResourceAttr:        ResourceAttributeConfig{Enabled: true},
@@ -46,6 +47,7 @@ func TestMetricsBuilderConfig(t *testing.T) {
 					DefaultMetric:            MetricConfig{Enabled: false},
 					DefaultMetricToBeRemoved: MetricConfig{Enabled: false},
 					OptionalMetric:           MetricConfig{Enabled: false},
+					OptionalMetricEmptyUnit:  MetricConfig{Enabled: false},
 				},
 				ResourceAttributes: ResourceAttributesConfig{
 					MapResourceAttr:        ResourceAttributeConfig{Enabled: false},
@@ -73,6 +75,58 @@ func loadMetricsBuilderConfig(t *testing.T, name string) MetricsBuilderConfig {
 	sub, err := cm.Sub(name)
 	require.NoError(t, err)
 	cfg := DefaultMetricsBuilderConfig()
+	require.NoError(t, component.UnmarshalConfig(sub, &cfg))
+	return cfg
+}
+
+func TestResourceAttributesConfig(t *testing.T) {
+	tests := []struct {
+		name string
+		want ResourceAttributesConfig
+	}{
+		{
+			name: "default",
+			want: DefaultResourceAttributesConfig(),
+		},
+		{
+			name: "all_set",
+			want: ResourceAttributesConfig{
+				MapResourceAttr:        ResourceAttributeConfig{Enabled: true},
+				OptionalResourceAttr:   ResourceAttributeConfig{Enabled: true},
+				SliceResourceAttr:      ResourceAttributeConfig{Enabled: true},
+				StringEnumResourceAttr: ResourceAttributeConfig{Enabled: true},
+				StringResourceAttr:     ResourceAttributeConfig{Enabled: true},
+			},
+		},
+		{
+			name: "none_set",
+			want: ResourceAttributesConfig{
+				MapResourceAttr:        ResourceAttributeConfig{Enabled: false},
+				OptionalResourceAttr:   ResourceAttributeConfig{Enabled: false},
+				SliceResourceAttr:      ResourceAttributeConfig{Enabled: false},
+				StringEnumResourceAttr: ResourceAttributeConfig{Enabled: false},
+				StringResourceAttr:     ResourceAttributeConfig{Enabled: false},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := loadResourceAttributesConfig(t, tt.name)
+			if diff := cmp.Diff(tt.want, cfg, cmpopts.IgnoreUnexported(ResourceAttributeConfig{})); diff != "" {
+				t.Errorf("Config mismatch (-expected +actual):\n%s", diff)
+			}
+		})
+	}
+}
+
+func loadResourceAttributesConfig(t *testing.T, name string) ResourceAttributesConfig {
+	cm, err := confmaptest.LoadConf(filepath.Join("testdata", "config.yaml"))
+	require.NoError(t, err)
+	sub, err := cm.Sub(name)
+	require.NoError(t, err)
+	sub, err = sub.Sub("resource_attributes")
+	require.NoError(t, err)
+	cfg := DefaultResourceAttributesConfig()
 	require.NoError(t, component.UnmarshalConfig(sub, &cfg))
 	return cfg
 }

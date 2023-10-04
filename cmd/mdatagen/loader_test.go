@@ -18,7 +18,7 @@ func Test_loadMetadata(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name: "metadata.yaml",
+			name: "metadata-sample.yaml",
 			want: metadata{
 				Type:           "file",
 				SemConvVersion: "1.9.0",
@@ -131,11 +131,11 @@ func Test_loadMetadata(t *testing.T) {
 						Warnings: warnings{
 							IfEnabledNotSet: "This metric will be disabled by default soon.",
 						},
-						Unit: "s",
+						Unit: strPtr("s"),
 						Sum: &sum{
-							MetricValueType: MetricValueType{pmetric.NumberDataPointValueTypeInt},
-							Aggregated:      Aggregated{Aggregation: pmetric.AggregationTemporalityCumulative},
-							Mono:            Mono{Monotonic: true},
+							MetricValueType:        MetricValueType{pmetric.NumberDataPointValueTypeInt},
+							AggregationTemporality: AggregationTemporality{Aggregation: pmetric.AggregationTemporalityCumulative},
+							Mono:                   Mono{Monotonic: true},
 						},
 						Attributes: []attributeName{"string_attr", "overridden_int_attr", "enum_attr", "slice_attr", "map_attr"},
 					},
@@ -145,12 +145,25 @@ func Test_loadMetadata(t *testing.T) {
 						Warnings: warnings{
 							IfConfigured: "This metric is deprecated and will be removed soon.",
 						},
-						Unit: "1",
+						Unit: strPtr("1"),
 						Gauge: &gauge{
 							MetricValueType: MetricValueType{pmetric.NumberDataPointValueTypeDouble},
 						},
 						Attributes: []attributeName{"string_attr", "boolean_attr"},
 					},
+					"optional.metric.empty_unit": {
+						Enabled:     false,
+						Description: "[DEPRECATED] Gauge double metric disabled by default.",
+						Warnings: warnings{
+							IfConfigured: "This metric is deprecated and will be removed soon.",
+						},
+						Unit: strPtr(""),
+						Gauge: &gauge{
+							MetricValueType: MetricValueType{pmetric.NumberDataPointValueTypeDouble},
+						},
+						Attributes: []attributeName{"string_attr", "boolean_attr"},
+					},
+
 					"default.metric.to_be_removed": {
 						Enabled:               true,
 						Description:           "[DEPRECATED] Non-monotonic delta sum double metric enabled by default.",
@@ -158,11 +171,11 @@ func Test_loadMetadata(t *testing.T) {
 						Warnings: warnings{
 							IfEnabled: "This metric is deprecated and will be removed soon.",
 						},
-						Unit: "s",
+						Unit: strPtr("s"),
 						Sum: &sum{
-							MetricValueType: MetricValueType{pmetric.NumberDataPointValueTypeDouble},
-							Aggregated:      Aggregated{Aggregation: pmetric.AggregationTemporalityDelta},
-							Mono:            Mono{Monotonic: false},
+							MetricValueType:        MetricValueType{pmetric.NumberDataPointValueTypeDouble},
+							AggregationTemporality: AggregationTemporality{Aggregation: pmetric.AggregationTemporalityDelta},
+							Mono:                   Mono{Monotonic: false},
 						},
 					},
 				},
@@ -202,12 +215,12 @@ func Test_loadMetadata(t *testing.T) {
 		{
 			name:    "testdata/no_aggregation.yaml",
 			want:    metadata{},
-			wantErr: "1 error(s) decoding:\n\n* error decoding 'metrics[default.metric]': 1 error(s) decoding:\n\n* error decoding 'sum': missing required field: `aggregation`",
+			wantErr: "1 error(s) decoding:\n\n* error decoding 'metrics[default.metric]': 1 error(s) decoding:\n\n* error decoding 'sum': missing required field: `aggregation_temporality`",
 		},
 		{
 			name:    "testdata/invalid_aggregation.yaml",
 			want:    metadata{},
-			wantErr: "1 error(s) decoding:\n\n* error decoding 'metrics[default.metric]': 1 error(s) decoding:\n\n* error decoding 'sum': 1 error(s) decoding:\n\n* error decoding 'aggregation': invalid aggregation: \"invalidaggregation\"",
+			wantErr: "1 error(s) decoding:\n\n* error decoding 'metrics[default.metric]': 1 error(s) decoding:\n\n* error decoding 'sum': 1 error(s) decoding:\n\n* error decoding 'aggregation_temporality': invalid aggregation: \"invalidaggregation\"",
 		},
 		{
 			name:    "testdata/invalid_type_attr.yaml",
@@ -227,4 +240,8 @@ func Test_loadMetadata(t *testing.T) {
 			}
 		})
 	}
+}
+
+func strPtr(s string) *string {
+	return &s
 }

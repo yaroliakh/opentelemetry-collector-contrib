@@ -24,10 +24,11 @@ import (
 
 // Start starts the metric telemetry generator
 func Start(cfg *Config) error {
-	logger, err := common.CreateLogger()
+	logger, err := common.CreateLogger(cfg.SkipSettingGRPCLogger)
 	if err != nil {
 		return err
 	}
+	logger.Info("starting the metrics generator with configuration", zap.Any("config", cfg))
 
 	grpcExpOpt := []otlpmetricgrpc.Option{
 		otlpmetricgrpc.WithEndpoint(cfg.Endpoint),
@@ -38,6 +39,7 @@ func Start(cfg *Config) error {
 
 	httpExpOpt := []otlpmetrichttp.Option{
 		otlpmetrichttp.WithEndpoint(cfg.Endpoint),
+		otlpmetrichttp.WithURLPath(cfg.HTTPPath),
 	}
 
 	if cfg.Insecure {
@@ -103,6 +105,7 @@ func Run(c *Config, exp sdkmetric.Exporter, logger *zap.Logger) error {
 		wg.Add(1)
 		w := worker{
 			numMetrics:     c.NumMetrics,
+			metricType:     c.MetricType,
 			limitPerSecond: limit,
 			totalDuration:  c.TotalDuration,
 			running:        running,
@@ -111,7 +114,7 @@ func Run(c *Config, exp sdkmetric.Exporter, logger *zap.Logger) error {
 			index:          i,
 		}
 
-		go w.simulateMetrics(res, exp)
+		go w.simulateMetrics(res, exp, c.GetTelemetryAttributes())
 	}
 	if c.TotalDuration > 0 {
 		time.Sleep(c.TotalDuration)

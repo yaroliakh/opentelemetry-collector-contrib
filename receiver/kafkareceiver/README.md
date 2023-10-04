@@ -4,12 +4,14 @@
 | Status        |           |
 | ------------- |-----------|
 | Stability     | [beta]: metrics, logs, traces   |
-| Distributions | [contrib], [aws], [observiq], [splunk], [sumo] |
-| Issues        | ![Open issues](https://img.shields.io/github/issues-search/open-telemetry/opentelemetry-collector-contrib?query=is%3Aissue%20is%3Aopen%20label%3Areceiver%2Fkafka%20&label=open&color=orange&logo=opentelemetry) ![Closed issues](https://img.shields.io/github/issues-search/open-telemetry/opentelemetry-collector-contrib?query=is%3Aissue%20is%3Aclosed%20label%3Areceiver%2Fkafka%20&label=closed&color=blue&logo=opentelemetry) |
+| Distributions | [contrib], [aws], [grafana], [observiq], [splunk], [sumo] |
+| Issues        | [![Open issues](https://img.shields.io/github/issues-search/open-telemetry/opentelemetry-collector-contrib?query=is%3Aissue%20is%3Aopen%20label%3Areceiver%2Fkafka%20&label=open&color=orange&logo=opentelemetry)](https://github.com/open-telemetry/opentelemetry-collector-contrib/issues?q=is%3Aopen+is%3Aissue+label%3Areceiver%2Fkafka) [![Closed issues](https://img.shields.io/github/issues-search/open-telemetry/opentelemetry-collector-contrib?query=is%3Aissue%20is%3Aclosed%20label%3Areceiver%2Fkafka%20&label=closed&color=blue&logo=opentelemetry)](https://github.com/open-telemetry/opentelemetry-collector-contrib/issues?q=is%3Aclosed+is%3Aissue+label%3Areceiver%2Fkafka) |
+| [Code Owners](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/CONTRIBUTING.md#becoming-a-code-owner)    | [@pavolloffay](https://www.github.com/pavolloffay), [@MovieStoreGuy](https://www.github.com/MovieStoreGuy) |
 
 [beta]: https://github.com/open-telemetry/opentelemetry-collector#beta
 [contrib]: https://github.com/open-telemetry/opentelemetry-collector-releases/tree/main/distributions/otelcol-contrib
 [aws]: https://github.com/aws-observability/aws-otel-collector
+[grafana]: https://github.com/grafana/agent
 [observiq]: https://github.com/observIQ/observiq-otel-collector
 [splunk]: https://github.com/signalfx/splunk-otel-collector
 [sumo]: https://github.com/SumoLogic/sumologic-otel-collector
@@ -85,7 +87,10 @@ The following settings can be optionally configured:
   - `after`: (default = false) If true, the messages are marked after the pipeline execution
   - `on_error`: (default = false) If false, only the successfully processed messages are marked
     **Note: this can block the entire partition in case a message processing returns a permanent error**
-
+- `header_extraction`:
+  - `extract_headers` (default = false): Allows user to attach header fields to resource attributes in otel piepline
+  - `headers` (default = []): List of headers they'd like to extract from kafka record. 
+  **Note: Matching pattern will be `exact`. Regexes are not supported as of now.** 
 Example:
 
 ```yaml
@@ -93,3 +98,40 @@ receivers:
   kafka:
     protocol_version: 2.0.0
 ```
+
+Example of header extraction:
+
+```yaml
+receivers:
+  kafka:
+    topic: test
+    header_extraction: 
+      extract_headers: true
+      headers: ["header1", "header2"]
+```
+
+- If we feed following kafka record to `test` topic and use above configs: 
+```yaml
+{
+  event: Hello,
+  headers: {
+    header1: value1,
+    header2: value2,
+  }
+}
+```
+we will get a log record in collector similar to: 
+```yaml
+{
+  ...
+  body: Hello,
+  resource: {
+    kafka.header.header1: value1,
+    kafka.header.header2: value2,
+  },
+  ...
+}
+```
+
+- Here you can see the kafka record header `header1` and `header2` being added to resource attribute.
+- Every **matching** kafka header key is prefixed with `kafka.header` string and attached to resource attributes.

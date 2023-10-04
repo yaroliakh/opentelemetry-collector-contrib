@@ -61,6 +61,10 @@ func TestMetricsBuilder(t *testing.T) {
 				assert.Equal(t, "[WARNING] `optional.metric` should not be configured: This metric is deprecated and will be removed soon.", observedLogs.All()[expectedWarnings].Message)
 				expectedWarnings++
 			}
+			if test.configSet == testSetAll || test.configSet == testSetNone {
+				assert.Equal(t, "[WARNING] `optional.metric.empty_unit` should not be configured: This metric is deprecated and will be removed soon.", observedLogs.All()[expectedWarnings].Message)
+				expectedWarnings++
+			}
 			assert.Equal(t, expectedWarnings, observedLogs.Len())
 
 			defaultMetricsCount := 0
@@ -77,7 +81,17 @@ func TestMetricsBuilder(t *testing.T) {
 			allMetricsCount++
 			mb.RecordOptionalMetricDataPoint(ts, 1, "string_attr-val", true)
 
-			metrics := mb.Emit(WithMapResourceAttr(map[string]any{"key1": "map.resource.attr-val1", "key2": "map.resource.attr-val2"}), WithOptionalResourceAttr("optional.resource.attr-val"), WithSliceResourceAttr([]any{"slice.resource.attr-item1", "slice.resource.attr-item2"}), WithStringEnumResourceAttrOne, WithStringResourceAttr("string.resource.attr-val"))
+			allMetricsCount++
+			mb.RecordOptionalMetricEmptyUnitDataPoint(ts, 1, "string_attr-val", true)
+
+			rb := mb.NewResourceBuilder()
+			rb.SetMapResourceAttr(map[string]any{"key1": "map.resource.attr-val1", "key2": "map.resource.attr-val2"})
+			rb.SetOptionalResourceAttr("optional.resource.attr-val")
+			rb.SetSliceResourceAttr([]any{"slice.resource.attr-item1", "slice.resource.attr-item2"})
+			rb.SetStringEnumResourceAttrOne()
+			rb.SetStringResourceAttr("string.resource.attr-val")
+			res := rb.Emit()
+			metrics := mb.Emit(WithResource(res))
 
 			if test.configSet == testSetNone {
 				assert.Equal(t, 0, metrics.ResourceMetrics().Len())
@@ -86,46 +100,7 @@ func TestMetricsBuilder(t *testing.T) {
 
 			assert.Equal(t, 1, metrics.ResourceMetrics().Len())
 			rm := metrics.ResourceMetrics().At(0)
-			attrCount := 0
-			enabledAttrCount := 0
-			attrVal, ok := rm.Resource().Attributes().Get("map.resource.attr")
-			attrCount++
-			assert.Equal(t, mb.resourceAttributesConfig.MapResourceAttr.Enabled, ok)
-			if mb.resourceAttributesConfig.MapResourceAttr.Enabled {
-				enabledAttrCount++
-				assert.EqualValues(t, map[string]any{"key1": "map.resource.attr-val1", "key2": "map.resource.attr-val2"}, attrVal.Map().AsRaw())
-			}
-			attrVal, ok = rm.Resource().Attributes().Get("optional.resource.attr")
-			attrCount++
-			assert.Equal(t, mb.resourceAttributesConfig.OptionalResourceAttr.Enabled, ok)
-			if mb.resourceAttributesConfig.OptionalResourceAttr.Enabled {
-				enabledAttrCount++
-				assert.EqualValues(t, "optional.resource.attr-val", attrVal.Str())
-			}
-			attrVal, ok = rm.Resource().Attributes().Get("slice.resource.attr")
-			attrCount++
-			assert.Equal(t, mb.resourceAttributesConfig.SliceResourceAttr.Enabled, ok)
-			if mb.resourceAttributesConfig.SliceResourceAttr.Enabled {
-				enabledAttrCount++
-				assert.EqualValues(t, []any{"slice.resource.attr-item1", "slice.resource.attr-item2"}, attrVal.Slice().AsRaw())
-			}
-			attrVal, ok = rm.Resource().Attributes().Get("string.enum.resource.attr")
-			attrCount++
-			assert.Equal(t, mb.resourceAttributesConfig.StringEnumResourceAttr.Enabled, ok)
-			if mb.resourceAttributesConfig.StringEnumResourceAttr.Enabled {
-				enabledAttrCount++
-				assert.EqualValues(t, "one", attrVal.Str())
-			}
-			attrVal, ok = rm.Resource().Attributes().Get("string.resource.attr")
-			attrCount++
-			assert.Equal(t, mb.resourceAttributesConfig.StringResourceAttr.Enabled, ok)
-			if mb.resourceAttributesConfig.StringResourceAttr.Enabled {
-				enabledAttrCount++
-				assert.EqualValues(t, "string.resource.attr-val", attrVal.Str())
-			}
-			assert.Equal(t, enabledAttrCount, rm.Resource().Attributes().Len())
-			assert.Equal(t, attrCount, 5)
-
+			assert.Equal(t, res, rm.Resource())
 			assert.Equal(t, 1, rm.ScopeMetrics().Len())
 			ms := rm.ScopeMetrics().At(0).Metrics()
 			if test.configSet == testSetDefault {
@@ -187,6 +162,24 @@ func TestMetricsBuilder(t *testing.T) {
 					assert.Equal(t, 1, ms.At(i).Gauge().DataPoints().Len())
 					assert.Equal(t, "[DEPRECATED] Gauge double metric disabled by default.", ms.At(i).Description())
 					assert.Equal(t, "1", ms.At(i).Unit())
+					dp := ms.At(i).Gauge().DataPoints().At(0)
+					assert.Equal(t, start, dp.StartTimestamp())
+					assert.Equal(t, ts, dp.Timestamp())
+					assert.Equal(t, pmetric.NumberDataPointValueTypeDouble, dp.ValueType())
+					assert.Equal(t, float64(1), dp.DoubleValue())
+					attrVal, ok := dp.Attributes().Get("string_attr")
+					assert.True(t, ok)
+					assert.EqualValues(t, "string_attr-val", attrVal.Str())
+					attrVal, ok = dp.Attributes().Get("boolean_attr")
+					assert.True(t, ok)
+					assert.EqualValues(t, true, attrVal.Bool())
+				case "optional.metric.empty_unit":
+					assert.False(t, validatedMetrics["optional.metric.empty_unit"], "Found a duplicate in the metrics slice: optional.metric.empty_unit")
+					validatedMetrics["optional.metric.empty_unit"] = true
+					assert.Equal(t, pmetric.MetricTypeGauge, ms.At(i).Type())
+					assert.Equal(t, 1, ms.At(i).Gauge().DataPoints().Len())
+					assert.Equal(t, "[DEPRECATED] Gauge double metric disabled by default.", ms.At(i).Description())
+					assert.Equal(t, "", ms.At(i).Unit())
 					dp := ms.At(i).Gauge().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
